@@ -13,7 +13,7 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 git branch: 'develop',
-                    credentialsId: 'github-token',
+                    credentialsId: 'github-manifests-token',
                     url: 'https://github.com/Learn-With-Dhiraj/3-tier-app.git'
             }
         }
@@ -76,7 +76,7 @@ pipeline {
         stage('Update Manifest') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'github-token',
+                    credentialsId: 'github-manifests-token',
                     usernameVariable: 'GIT_USERNAME',
                     passwordVariable: 'GIT_PASSWORD'
                 )]) {
