@@ -58,8 +58,7 @@ pipeline {
         
         stage('ECR Push') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
+                withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                     sh '''
                         aws ecr get-login-password --region ${AWS_REGION} | \
                         docker login --username AWS \
@@ -76,11 +75,14 @@ pipeline {
         
         stage('Update Manifest') {
             steps {
-                withCredentials([string(credentialsId: 'github-token', 
-                                       variable: 'GITHUB_TOKEN')]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-token',
+                    usernameVariable: 'GIT_USERNAME',
+                    passwordVariable: 'GIT_PASSWORD'
+                )]) {
                     sh '''
                         rm -rf 3-tier-manifests
-                        git clone https://Learn-With-Dhiraj:${GITHUB_TOKEN}@github.com/Learn-With-Dhiraj/3-tier-manifests.git
+                        git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Learn-With-Dhiraj/3-tier-manifests.git
                         cd 3-tier-manifests
                         sed -i "s/tag:.*/tag: ${BUILD_NUMBER}/" dev/values.yaml
                         git config user.email "jenkins@devops.com"
