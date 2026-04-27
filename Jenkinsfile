@@ -68,6 +68,8 @@ pipeline {
                         ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
                         
                         docker push ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
+                        docker tag ${APP_NAME}:${BUILD_NUMBER} ${ECR_URL}/${APP_NAME}:latest
+                        docker push ${ECR_URL}/${APP_NAME}:latest
                     '''
                 }
             }
