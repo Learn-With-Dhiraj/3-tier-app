@@ -5,6 +5,7 @@ pipeline {
         ECR_URL = "040235853848.dkr.ecr.ap-south-1.amazonaws.com"
         APP_NAME = "devops-app"
         AWS_REGION = "ap-south-1"
+        SCANNER_HOME = tool 'sonar-scanner'
     }
     
     stages {
@@ -21,7 +22,7 @@ pipeline {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
                     sh '''
-                        sonar-scanner \
+                        ${SCANNER_HOME}/bin/sonar-scanner \
                         -Dsonar.projectKey=three-tier-app \
                         -Dsonar.projectName=three-tier-app \
                         -Dsonar.sources=.
@@ -40,9 +41,7 @@ pipeline {
         
         stage('Docker Build') {
             steps {
-                sh '''
-                    docker build -t ${APP_NAME}:${BUILD_NUMBER} .
-                '''
+                sh 'docker build -t ${APP_NAME}:${BUILD_NUMBER} .'
             }
         }
         
@@ -96,7 +95,7 @@ pipeline {
     
     post {
         success {
-            echo 'Pipeline Successfully Completed!✅'
+            echo 'Pipeline Successfully Completed! ✅'
         }
         failure {
             echo 'Pipeline Failed! ❌'
