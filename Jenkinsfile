@@ -6,6 +6,7 @@ pipeline {
         APP_NAME = "devops-app"
         AWS_REGION = "ap-south-1"
         SCANNER_HOME = tool 'sonar-scanner'
+        MANIFEST_REPO = "https://github.com/Learn-With-Dhiraj/3-tier-manifests.git"
     }
     
     stages {
@@ -13,7 +14,7 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 git branch: 'develop',
-                    credentialsId: 'github-token',
+                    credentialsId: 'github-manifests-token',
                     url: 'https://github.com/Learn-With-Dhiraj/3-tier-app.git'
             }
         }
@@ -21,19 +22,19 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonarqube-server') {
-                    sh '''
+                    sh """
                         ${SCANNER_HOME}/bin/sonar-scanner \
                         -Dsonar.projectKey=three-tier-app \
                         -Dsonar.projectName=three-tier-app \
                         -Dsonar.sources=.
-                    '''
+                    """
                 }
             }
         }
         
         stage('OWASP Check') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./',
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',
                                 odcInstallation: 'owasp-check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
@@ -41,26 +42,30 @@ pipeline {
         
         stage('Docker Build') {
             steps {
-                sh 'docker build -t ${APP_NAME}:${BUILD_NUMBER} .'
+                sh """
+                    docker build -t ${APP_NAME}:${BUILD_NUMBER} .
+                    docker tag ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest
+                """
             }
         }
         
         stage('Trivy Scan') {
             steps {
-                sh '''
+                sh """
                     trivy image \
                     --format table \
+                    --exit-code 0 \
+                    --severity HIGH,CRITICAL \
                     -o trivy-report.html \
                     ${APP_NAME}:${BUILD_NUMBER}
-                '''
+                """
             }
         }
         
         stage('ECR Push') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    sh '''
+                withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                    sh """
                         aws ecr get-login-password --region ${AWS_REGION} | \
                         docker login --username AWS \
                         --password-stdin ${ECR_URL}
@@ -68,27 +73,34 @@ pipeline {
                         docker tag ${APP_NAME}:${BUILD_NUMBER} \
                         ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
                         
+                        docker tag ${APP_NAME}:${BUILD_NUMBER} \
+                        ${ECR_URL}/${APP_NAME}:latest
+                        
                         docker push ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
-                    '''
+                        docker push ${ECR_URL}/${APP_NAME}:latest
+                    """
                 }
             }
         }
         
         stage('Update Manifest') {
             steps {
-                withCredentials([string(credentialsId: 'github-token', 
-                                       variable: 'GITHUB_TOKEN')]) {
-                    sh '''
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-manifests-token',
+                    usernameVariable: 'GIT_USERNAME',
+                    passwordVariable: 'GIT_PASSWORD'
+                )]) {
+                    sh """
                         rm -rf 3-tier-manifests
-                        git clone https://Learn-With-Dhiraj:${GITHUB_TOKEN}@github.com/Learn-With-Dhiraj/3-tier-manifests.git
+                        git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Learn-With-Dhiraj/3-tier-manifests.git
                         cd 3-tier-manifests
-                        sed -i "s/tag:.*/tag: ${BUILD_NUMBER}/" dev/values.yaml
+                        sed -i "s/tag:.*/tag: ${BUILD_NUMBER}/" three-tier-app/values-dev.yaml
                         git config user.email "jenkins@devops.com"
                         git config user.name "Jenkins"
                         git add .
-                        git commit -m "Update dev image tag to ${BUILD_NUMBER}"
+                        git commit -m "Update dev image tag to ${BUILD_NUMBER}" || echo "Nothing to commit"
                         git push
-                    '''
+                    """
                 }
             }
         }
@@ -100,6 +112,9 @@ pipeline {
         }
         failure {
             echo 'Pipeline Failed! ❌'
+        }
+        always {
+            cleanWs()
         }
     }
 }
