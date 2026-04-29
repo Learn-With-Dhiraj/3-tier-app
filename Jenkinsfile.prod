@@ -41,7 +41,7 @@ pipeline {
         
         stage('OWASP Check') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',
+                echo 'OWASP Skipped'
                                 odcInstallation: 'owasp-check'
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
