@@ -6,14 +6,13 @@ pipeline {
         APP_NAME = "devops-app"
         AWS_REGION = "ap-south-1"
         SCANNER_HOME = tool 'sonar-scanner'
-        MANIFEST_REPO = "https://github.com/Learn-With-Dhiraj/3-tier-manifests.git"
     }
     
     stages {
         
         stage('Git Checkout') {
             steps {
-                git branch: 'develop',
+                git branch: 'main',
                     credentialsId: 'github-manifests-token',
                     url: 'https://github.com/Learn-With-Dhiraj/3-tier-app.git'
             }
@@ -24,10 +23,18 @@ pipeline {
                 withSonarQubeEnv('sonarqube-server') {
                     sh """
                         ${SCANNER_HOME}/bin/sonar-scanner \
-                        -Dsonar.projectKey=three-tier-app \
-                        -Dsonar.projectName=three-tier-app \
+                        -Dsonar.projectKey=three-tier-app-prod \
+                        -Dsonar.projectName=three-tier-app-prod \
                         -Dsonar.sources=.
                     """
+                }
+            }
+        }
+        
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
@@ -43,8 +50,8 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh """
-                    docker build -t ${APP_NAME}:${BUILD_NUMBER} .
-                    docker tag ${APP_NAME}:${BUILD_NUMBER} ${APP_NAME}:latest
+                    docker build -t ${APP_NAME}:prod-${BUILD_NUMBER} .
+                    docker tag ${APP_NAME}:prod-${BUILD_NUMBER} ${APP_NAME}:prod-latest
                 """
             }
         }
@@ -54,10 +61,10 @@ pipeline {
                 sh """
                     trivy image \
                     --format table \
-                    --exit-code 0 \
-                    --severity HIGH,CRITICAL \
-                    -o trivy-report.html \
-                    ${APP_NAME}:${BUILD_NUMBER}
+                    --exit-code 1 \
+                    --severity CRITICAL \
+                    -o trivy-prod-report.html \
+                    ${APP_NAME}:prod-${BUILD_NUMBER}
                 """
             }
         }
@@ -70,20 +77,30 @@ pipeline {
                         docker login --username AWS \
                         --password-stdin ${ECR_URL}
                         
-                        docker tag ${APP_NAME}:${BUILD_NUMBER} \
-                        ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
+                        docker tag ${APP_NAME}:prod-${BUILD_NUMBER} \
+                        ${ECR_URL}/${APP_NAME}:prod-${BUILD_NUMBER}
                         
-                        docker tag ${APP_NAME}:${BUILD_NUMBER} \
-                        ${ECR_URL}/${APP_NAME}:latest
+                        docker tag ${APP_NAME}:prod-${BUILD_NUMBER} \
+                        ${ECR_URL}/${APP_NAME}:prod-latest
                         
-                        docker push ${ECR_URL}/${APP_NAME}:${BUILD_NUMBER}
-                        docker push ${ECR_URL}/${APP_NAME}:latest
+                        docker push ${ECR_URL}/${APP_NAME}:prod-${BUILD_NUMBER}
+                        docker push ${ECR_URL}/${APP_NAME}:prod-latest
                     """
                 }
             }
         }
         
-        stage('Update Manifest') {
+        stage('Manual Approval') {
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    input message: '🚀 Production ला Deploy करायचं का?',
+                          ok: 'Deploy करा!',
+                          submitter: 'admin'
+                }
+            }
+        }
+        
+        stage('Update Prod Manifest') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'github-manifests-token',
@@ -94,11 +111,11 @@ pipeline {
                         rm -rf 3-tier-manifests
                         git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Learn-With-Dhiraj/3-tier-manifests.git
                         cd 3-tier-manifests
-                        sed -i "s/tag:.*/tag: ${BUILD_NUMBER}/" three-tier-app/values-dev.yaml
+                        sed -i "s/tag:.*/tag: prod-${BUILD_NUMBER}/" three-tier-app/values-prod.yaml
                         git config user.email "jenkins@devops.com"
                         git config user.name "Jenkins"
                         git add .
-                        git commit -m "Update dev image tag to ${BUILD_NUMBER}" || echo "Nothing to commit"
+                        git commit -m "Deploy prod version prod-${BUILD_NUMBER}" || echo "Nothing to commit"
                         git push
                     """
                 }
@@ -108,10 +125,13 @@ pipeline {
     
     post {
         success {
-            echo 'Pipeline Successfully Completed! ✅'
+            echo '✅ Production Deployment Complete!'
         }
         failure {
-            echo 'Pipeline Failed! ❌'
+            echo '❌ Production Pipeline Failed!'
+        }
+        aborted {
+            echo '⚠️ Production Deployment Cancelled!'
         }
         always {
             cleanWs()
